@@ -8,6 +8,9 @@ __copyright__ = "Copyright (C) 2014 The OctoPrint Project - Released under terms
 import logging
 import threading
 import sockjs.tornado
+import sockjs.tornado.session
+import sockjs.tornado.proto
+import sockjs.tornado.util
 import time
 
 import octoprint.timelapse
@@ -17,12 +20,55 @@ import octoprint.plugin
 
 from octoprint.events import Events
 from octoprint.settings import settings
+from octoprint.util.json import JsonEncoding
 
 import octoprint.printer
+
+import wrapt
+import json
+
+
+class ThreadSafeSession(sockjs.tornado.session.Session):
+	def __init__(self, conn, server, session_id, expiry=None):
+		sockjs.tornado.session.Session.__init__(self, conn, server, session_id, expiry=expiry)
+
+	def set_handler(self, handler, start_heartbeat=True):
+		if getattr(handler, "__orig_send_pack", None) is None:
+			orig_send_pack = handler.send_pack
+			mutex = threading.RLock()
+
+			def send_pack(*args, **kwargs):
+				with mutex:
+					return orig_send_pack(*args, **kwargs)
+
+			handler.send_pack = send_pack
+			setattr(handler, "__orig_send_pack", orig_send_pack)
+
+		return sockjs.tornado.session.Session.set_handler(self, handler, start_heartbeat=start_heartbeat)
+
+	def remove_handler(self, handler):
+		result = sockjs.tornado.session.Session.remove_handler(self, handler)
+
+		if getattr(handler, "__orig_send_pack", None) is not None:
+			handler.send_pack = getattr(handler, "__orig_send_pack")
+			delattr(handler, "__orig_send_pack")
+
+		return result
+
+
+class JsonEncodingSessionWrapper(wrapt.ObjectProxy):
+	def send_message(self, msg, stats=True, binary=False):
+		self.send_jsonified(json.dumps(sockjs.tornado.util.bytes_to_str(msg),
+		                               separators=(',', ':'),
+		                               default=JsonEncoding.encode),
+		                    stats)
 
 
 class PrinterStateConnection(sockjs.tornado.SockJSConnection, octoprint.printer.PrinterCallback):
 	def __init__(self, printer, fileManager, analysisQueue, userManager, eventManager, pluginManager, session):
+		if isinstance(session, sockjs.tornado.session.Session):
+			session = JsonEncodingSessionWrapper(session)
+
 		sockjs.tornado.SockJSConnection.__init__(self, session)
 
 		self._logger = logging.getLogger(__name__)
@@ -47,13 +93,17 @@ class PrinterStateConnection(sockjs.tornado.SockJSConnection, octoprint.printer.
 		self._lastCurrent = 0
 		self._baseRateLimit = 0.5
 
-		self._emit_mutex = threading.RLock()
-
 	def _getRemoteAddress(self, info):
 		forwardedFor = info.headers.get("X-Forwarded-For")
 		if forwardedFor is not None:
 			return forwardedFor.split(",")[0]
 		return info.ip
+
+	def __str__(self):
+		if self._remoteAddress:
+			return "{!r} connected to {}".format(self, self._remoteAddress)
+		else:
+			return "Unconnected {!r}".format(self)
 
 	def on_open(self, info):
 		self._remoteAddress = self._getRemoteAddress(info)
@@ -105,7 +155,6 @@ class PrinterStateConnection(sockjs.tornado.SockJSConnection, octoprint.printer.
 			self._emit("event", {"type": Events.MOVIE_RENDERING, "payload": octoprint.timelapse.current_render_job})
 
 	def on_close(self):
-		self._logger.info("Client connection closed: %s" % self._remoteAddress)
 		self._printer.unregister_callback(self)
 		self._fileManager.unregister_slicingprogress_callback(self)
 		octoprint.timelapse.unregister_callback(self)
@@ -114,6 +163,9 @@ class PrinterStateConnection(sockjs.tornado.SockJSConnection, octoprint.printer.
 		self._eventManager.fire(Events.CLIENT_CLOSED, {"remoteAddress": self._remoteAddress})
 		for event in octoprint.events.all_events():
 			self._eventManager.unsubscribe(event, self._onEvent)
+
+		self._logger.info("Client connection closed: %s" % self._remoteAddress)
+		self._remoteAddress = None
 
 	def on_message(self, message):
 		try:
@@ -205,11 +257,10 @@ class PrinterStateConnection(sockjs.tornado.SockJSConnection, octoprint.printer.
 		self.sendEvent(event, payload)
 
 	def _emit(self, type, payload):
-		with self._emit_mutex:
-			try:
-				self.send({type: payload})
-			except Exception as e:
-				if self._logger.isEnabledFor(logging.DEBUG):
-					self._logger.exception("Could not send message to client {}".format(self._remoteAddress))
-				else:
-					self._logger.warn("Could not send message to client {}: {}".format(self._remoteAddress, e))
+		try:
+			self.send({type: payload})
+		except Exception as e:
+			if self._logger.isEnabledFor(logging.DEBUG):
+				self._logger.exception("Could not send message to client {}".format(self._remoteAddress))
+			else:
+				self._logger.warn("Could not send message to client {}: {}".format(self._remoteAddress, e))

@@ -1,4 +1,142 @@
 # coding=utf-8
+"""
+This module contains printer profile related code.
+
+A printer profile is a ``dict`` of the following structure:
+
+.. list-table::
+   :widths: 15 5 30
+   :header-rows: 1
+
+   * - Name
+     - Type
+     - Description
+   * - ``id``
+     - ``string``
+     - Internal id of the printer profile
+   * - ``name``
+     - ``string``
+     - Human readable name of the printer profile
+   * - ``model``
+     - ``string``
+     - Printer model
+   * - ``color``
+     - ``string``
+     - Color to associate with the printer profile
+   * - ``volume``
+     - ``dict``
+     - Information about the print volume
+   * - ``volume.width``
+     - ``float``
+     - Width of the print volume (X axis)
+   * - ``volume.depth``
+     - ``float``
+     - Depth of the print volume (Y axis)
+   * - ``volume.height``
+     - ``float``
+     - Height of the print volume (Z axis)
+   * - ``volume.formFactor``
+     - ``string``
+     - Form factor of the print bed, either ``rectangular`` or ``circular``
+   * - ``volume.origin``
+     - ``string``
+     - Location of gcode origin in the print volume, either ``lowerleft`` or ``center``
+   * - ``volume.custom_box``
+     - ``dict`` or ``False``
+     - Custom boundary box overriding the default bounding box based on the provided width, depth, height and origin.
+       If ``False``, the default boundary box will be used.
+   * - ``volume.custom_box.x_min``
+     - ``float``
+     - Minimum valid X coordinate
+   * - ``volume.custom_box.y_min``
+     - ``float``
+     - Minimum valid Y coordinate
+   * - ``volume.custom_box.z_min``
+     - ``float``
+     - Minimum valid Z coordinate
+   * - ``volume.custom_box.x_max``
+     - ``float``
+     - Maximum valid X coordinate
+   * - ``volume.custom_box.y_max``
+     - ``float``
+     - Maximum valid Y coordinate
+   * - ``volume.custom_box.z_max``
+     - ``float``
+     - Maximum valid Z coordinate
+   * - ``heatedBed``
+     - ``bool``
+     - Whether the printer has a heated bed (``True``) or not (``False``)
+   * - ``extruder``
+     - ``dict``
+     - Information about the printer's extruders
+   * - ``extruder.count``
+     - ``int``
+     - How many extruders the printer has (default 1)
+   * - ``extruder.offsets``
+     - ``list`` of ``tuple``
+     - Extruder offsets relative to first extruder, list of (x, y) tuples, first is always (0,0)
+   * - ``extruder.nozzleDiameter``
+     - ``float``
+     - Diameter of the printer nozzle(s)
+   * - ``extruder.sharedNozzle``
+     - ``boolean``
+     - Whether there's only one nozzle shared among all extruders (true) or one nozzle per extruder (false).
+   * - ``axes``
+     - ``dict``
+     - Information about the printer axes
+   * - ``axes.x``
+     - ``dict``
+     - Information about the printer's X axis
+   * - ``axes.x.speed``
+     - ``float``
+     - Speed of the X axis in mm/s
+   * - ``axes.x.inverted``
+     - ``bool``
+     - Whether a positive value change moves the nozzle away from the print bed's origin (False, default) or towards it (True)
+   * - ``axes.y``
+     - ``dict``
+     - Information about the printer's Y axis
+   * - ``axes.y.speed``
+     - ``float``
+     - Speed of the Y axis in mm/s
+   * - ``axes.y.inverted``
+     - ``bool``
+     - Whether a positive value change moves the nozzle away from the print bed's origin (False, default) or towards it (True)
+   * - ``axes.z``
+     - ``dict``
+     - Information about the printer's Z axis
+   * - ``axes.z.speed``
+     - ``float``
+     - Speed of the Z axis in mm/s
+   * - ``axes.z.inverted``
+     - ``bool``
+     - Whether a positive value change moves the nozzle away from the print bed (False, default) or towards it (True)
+   * - ``axes.e``
+     - ``dict``
+     - Information about the printer's E axis
+   * - ``axes.e.speed``
+     - ``float``
+     - Speed of the E axis in mm/s
+   * - ``axes.e.inverted``
+     - ``bool``
+     - Whether a positive value change extrudes (False, default) or retracts (True) filament
+
+.. autoclass:: PrinterProfileManager
+   :members:
+
+.. autoclass:: BedFormFactor
+   :members:
+
+.. autoclass:: BedOrigin
+   :members:
+
+.. autoclass:: SaveError
+
+.. autoclass:: CouldNotOverwriteError
+
+.. autoclass:: InvalidProfileError
+"""
+
 from __future__ import absolute_import, division, print_function
 
 __author__ = "Gina Häußge <osd@foosel.net>"
@@ -20,25 +158,41 @@ from octoprint.settings import settings
 from octoprint.util import dict_merge, dict_sanitize, dict_contains_keys, is_hidden_path
 
 class SaveError(Exception):
+	"""Saving a profile failed"""
 	pass
 
 class CouldNotOverwriteError(SaveError):
+	"""Overwriting of a profile not allowed"""
 	pass
 
 class InvalidProfileError(Exception):
+	"""Profile invalid"""
 	pass
 
-class BedTypes(object):
+class BedFormFactor(object):
+	"""Valid values for bed form factor"""
+
 	RECTANGULAR = "rectangular"
+	"""Rectangular bed"""
+
 	CIRCULAR = "circular"
+	"""Circular bed"""
 
 	@classmethod
 	def values(cls):
 		return [getattr(cls, name) for name in cls.__dict__ if not (name.startswith("__") or name == "values")]
 
+BedTypes = BedFormFactor
+"""Deprecated name of :class:`BedFormFactors`"""
+
 class BedOrigin(object):
+	"""Valid values for bed origin"""
+
 	LOWERLEFT = "lowerleft"
+	"""Origin at lower left corner of the bed when looking from the top"""
+
 	CENTER = "center"
+	"""Origin at the center of the bed when looking from top"""
 
 	@classmethod
 	def values(cls):
@@ -48,125 +202,6 @@ class PrinterProfileManager(object):
 	"""
 	Manager for printer profiles. Offers methods to select the globally used printer profile and to list, add, remove,
 	load and save printer profiles.
-
-	A printer profile is a ``dict`` of the following structure:
-
-	.. list-table::
-	   :widths: 15 5 10 30
-	   :header-rows: 1
-
-	   * - Name
-	     - Type
-	     - Description
-	   * - ``id``
-	     - ``string``
-	     - Internal id of the printer profile
-	   * - ``name``
-	     - ``string``
-	     - Human readable name of the printer profile
-	   * - ``model``
-	     - ``string``
-	     - Printer model
-	   * - ``color``
-	     - ``string``
-	     - Color to associate with the printer profile
-	   * - ``volume``
-	     - ``dict``
-	     - Information about the print volume
-	   * - ``volume.width``
-	     - ``float``
-	     - Width of the print volume (X axis)
-	   * - ``volume.depth``
-	     - ``float``
-	     - Depth of the print volume (Y axis)
-	   * - ``volume.height``
-	     - ``float``
-	     - Height of the print volume (Z axis)
-	   * - ``volume.formFactor``
-	     - ``string``
-	     - Form factor of the print bed, either ``rectangular`` or ``circular``
-	   * - ``volume.origin``
-	     - ``string``
-	     - Location of gcode origin in the print volume, either ``lowerleft`` or ``center``
-	   * - ``volume.custom_box``
-	     - ``dict`` or ``False``
-	     - Custom boundary box overriding the default bounding box based on the provided width, depth, height and origin.
-	       If ``False``, the default boundary box will be used.
-	   * - ``volume.custom_box.x_min``
-	     - ``float``
-	     - Minimum valid X coordinate
-	   * - ``volume.custom_box.y_min``
-	     - ``float``
-	     - Minimum valid Y coordinate
-	   * - ``volume.custom_box.z_min``
-	     - ``float``
-	     - Minimum valid Z coordinate
-	   * - ``volume.custom_box.x_max``
-	     - ``float``
-	     - Maximum valid X coordinate
-	   * - ``volume.custom_box.y_max``
-	     - ``float``
-	     - Maximum valid Y coordinate
-	   * - ``volume.custom_box.z_max``
-	     - ``float``
-	     - Maximum valid Z coordinate
-	   * - ``heatedBed``
-	     - ``bool``
-	     - Whether the printer has a heated bed (``True``) or not (``False``)
-	   * - ``extruder``
-	     - ``dict``
-	     - Information about the printer's extruders
-	   * - ``extruder.count``
-	     - ``int``
-	     - How many extruders the printer has (default 1)
-	   * - ``extruder.offsets``
-	     - ``list`` of ``tuple``s
-	     - Extruder offsets relative to first extruder, list of (x, y) tuples, first is always (0,0)
-	   * - ``extruder.nozzleDiameter``
-	     - ``float``
-	     - Diameter of the printer nozzle(s)
-	   * - ``extruder.sharedNozzle``
-	     - ``boolean``
-	     - Whether there's only one nozzle shared among all extruders (true) or one nozzle per extruder (false).
-	   * - ``axes``
-	     - ``dict``
-	     - Information about the printer axes
-	   * - ``axes.x``
-	     - ``dict``
-	     - Information about the printer's X axis
-	   * - ``axes.x.speed``
-	     - ``float``
-	     - Speed of the X axis in mm/s
-	   * - ``axes.x.inverted``
-	     - ``bool``
-	     - Whether a positive value change moves the nozzle away from the print bed's origin (False, default) or towards it (True)
-	   * - ``axes.y``
-	     - ``dict``
-	     - Information about the printer's Y axis
-	   * - ``axes.y.speed``
-	     - ``float``
-	     - Speed of the Y axis in mm/s
-	   * - ``axes.y.inverted``
-	     - ``bool``
-	     - Whether a positive value change moves the nozzle away from the print bed's origin (False, default) or towards it (True)
-	   * - ``axes.z``
-	     - ``dict``
-	     - Information about the printer's Z axis
-	   * - ``axes.z.speed``
-	     - ``float``
-	     - Speed of the Z axis in mm/s
-	   * - ``axes.z.inverted``
-	     - ``bool``
-	     - Whether a positive value change moves the nozzle away from the print bed (False, default) or towards it (True)
-	   * - ``axes.e``
-	     - ``dict``
-	     - Information about the printer's E axis
-	   * - ``axes.e.speed``
-	     - ``float``
-	     - Speed of the E axis in mm/s
-	   * - ``axes.e.inverted``
-	     - ``bool``
-	     - Whether a positive value change extrudes (False, default) or retracts (True) filament
 	"""
 
 	default = dict(
@@ -178,7 +213,7 @@ class PrinterProfileManager(object):
 			width = 200,
 			depth = 200,
 			height = 200,
-			formFactor = BedTypes.RECTANGULAR,
+			formFactor = BedFormFactor.RECTANGULAR,
 			origin = BedOrigin.LOWERLEFT,
 			custom_box = False
 		),
@@ -215,25 +250,42 @@ class PrinterProfileManager(object):
 		if self.exists("_default"):
 			return
 
+		if not isinstance(default_overrides, dict):
+			self._logger.warn("Existing default profile from settings is not a valid profile, refusing to migrate: {!r}".format(default_overrides))
+			return
+
 		default_overrides["id"] = "_default"
 		self.save(default_overrides)
 
 		settings().set(["printerProfiles", "defaultProfile"], None)
 		settings().save()
 
+		self._logger.info("Migrated default printer profile from settings to _default.profile: {!r}".format(default_overrides))
+
 	def _verify_default_available(self):
-		default_id = settings().get(["printerProfile", "default"])
+		default_id = settings().get(["printerProfiles", "default"])
 		if default_id is None:
 			default_id = "_default"
 
 		if not self.exists(default_id):
 			if not self.exists("_default"):
-				self._logger.error("Selected default profile {} and _default do not exist, creating _default again and setting it as default".format(default_id))
+				if default_id == "_default":
+					self._logger.error("Profile _default does not exist, creating _default again and setting it as default")
+				else:
+					self._logger.error("Selected default profile {} and _default do not exist, creating _default again and setting it as default".format(default_id))
 				self.save(self.__class__.default, allow_overwrite=True, make_default=True)
 			else:
 				self._logger.error("Selected default profile {} does not exists, resetting to _default".format(default_id))
 				settings().set(["printerProfiles", "default"], "_default")
 				settings().save()
+			default_id = "_default"
+
+		profile = self.get(default_id)
+		if profile is None:
+			self._logger.error("Selected default profile {} is invalid, resetting to default values".format(default_id))
+			profile = copy.deepcopy(self.__class__.default)
+			profile["id"] = default_id
+			self.save(self.__class__.default, allow_overwrite=True, make_default=True)
 
 	def select(self, identifier):
 		if identifier is None or not self.exists(identifier):
@@ -241,7 +293,12 @@ class PrinterProfileManager(object):
 			return False
 		else:
 			self._current = self.get(identifier)
-			return True
+			if self._current is None:
+				self._logger.error("Profile {} is invalid, cannot select, falling back to default".format(identifier))
+				self._current = self.get_default()
+				return False
+			else:
+				return True
 
 	def deselect(self):
 		self._current = None
@@ -310,6 +367,8 @@ class PrinterProfileManager(object):
 			profile = self.get(default)
 			if profile is not None:
 				return profile
+			else:
+				self._logger.warn("Default profile {} is invalid, falling back to built-in defaults".format(default))
 
 		return copy.deepcopy(self.__class__.default)
 
@@ -318,7 +377,7 @@ class PrinterProfileManager(object):
 		if identifier is not None and not identifier in all_identifiers:
 			return
 
-		settings().set(["printerProfile", "default"], identifier)
+		settings().set(["printerProfiles", "default"], identifier)
 		settings().save()
 
 	def get_current_or_default(self):
@@ -344,6 +403,7 @@ class PrinterProfileManager(object):
 			try:
 				profile = self._load_from_path(path)
 			except InvalidProfileError:
+				self._logger.warn("Profile {} is invalid, skipping".format(identifier))
 				continue
 
 			if profile is None:
@@ -372,6 +432,9 @@ class PrinterProfileManager(object):
 		import yaml
 		with open(path) as f:
 			profile = yaml.safe_load(f)
+
+		if profile is None or not isinstance(profile, dict):
+			raise InvalidProfileError("Profile is None or not a dictionary")
 
 		if self._migrate_profile(profile):
 			try:
@@ -431,7 +494,7 @@ class PrinterProfileManager(object):
 		modified = False
 
 		if "volume" in profile and "formFactor" in profile["volume"] and not "origin" in profile["volume"]:
-			profile["volume"]["origin"] = BedOrigin.CENTER if profile["volume"]["formFactor"] == BedTypes.CIRCULAR else BedOrigin.LOWERLEFT
+			profile["volume"]["origin"] = BedOrigin.CENTER if profile["volume"]["formFactor"] == BedFormFactor.CIRCULAR else BedOrigin.LOWERLEFT
 			modified = True
 
 		if "volume" in profile and not "custom_box" in profile["volume"]:
@@ -492,7 +555,7 @@ class PrinterProfileManager(object):
 				return False
 
 		# validate form factor
-		if not profile["volume"]["formFactor"] in BedTypes.values():
+		if not profile["volume"]["formFactor"] in BedFormFactor.values():
 			self._logger.warn("Profile has invalid value volume.formFactor: {formFactor}".format(formFactor=profile["volume"]["formFactor"]))
 			return False
 
@@ -502,11 +565,11 @@ class PrinterProfileManager(object):
 			return False
 
 		# ensure origin and form factor combination is legal
-		if profile["volume"]["formFactor"] == BedTypes.CIRCULAR and not profile["volume"]["origin"] == BedOrigin.CENTER:
+		if profile["volume"]["formFactor"] == BedFormFactor.CIRCULAR and not profile["volume"]["origin"] == BedOrigin.CENTER:
 			profile["volume"]["origin"] = BedOrigin.CENTER
 
 		# force width and depth of volume to be identical for circular beds, with width being the reference
-		if profile["volume"]["formFactor"] == BedTypes.CIRCULAR:
+		if profile["volume"]["formFactor"] == BedFormFactor.CIRCULAR:
 			profile["volume"]["depth"] = profile["volume"]["width"]
 
 		# if we have a custom bounding box, validate it

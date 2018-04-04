@@ -46,6 +46,8 @@ $(function() {
 
         self.previousIsOperational = undefined;
 
+        self.refreshVisible = ko.observable(true);
+
         self.requestData = function() {
             OctoPrint.connection.getSettings()
                 .done(self.fromResponse);
@@ -100,7 +102,7 @@ $(function() {
             self.isReady(data.flags.ready);
             self.isLoading(data.flags.loading);
 
-            if (self.loginState.isUser() && self.previousIsOperational != self.isOperational()) {
+            if (self.loginState.isUser() && self.previousIsOperational !== self.isOperational()) {
                 // only open or close if the panel is visible (for admins) and
                 // the state just changed to avoid thwarting manual open/close
                 self.openOrCloseOnStateChange();
@@ -125,29 +127,54 @@ $(function() {
                         self.settings.printerProfiles.requestData();
                     });
             } else {
-                self.requestData();
-                OctoPrint.connection.disconnect();
+                if (!self.isPrinting() && !self.isPaused()) {
+                    self.requestData();
+                    OctoPrint.connection.disconnect();
+                } else {
+                    showConfirmationDialog({
+                        title: gettext("Are you sure?"),
+                        message: gettext("<p><strong>You are about to disconnect from the printer while a print "
+                            + "is in progress.</strong></p>"
+                            + "<p>Disconnecting while a print is in progress will prevent OctoPrint from "
+                            + "completing the print. If you're printing from an SD card attached directly "
+                            + "to the printer, any attempt to restart OctoPrint or reconnect to the printer "
+                            + "could interrupt the print.<p>"),
+                        question: gettext("Are you sure you want to disconnect from the printer?"),
+                        cancel: gettext("Stay Connected"),
+                        proceed: gettext("Disconnect"),
+                        onproceed:  function() {
+                            self.requestData();
+                            OctoPrint.connection.disconnect();
+                        }
+                    })
+                }
             }
         };
 
         self.onStartup = function() {
-            self.requestData();
-
-            // when isAdmin becomes true the first time, set the panel open or
-            // closed based on the connection state
-            var subscription = self.loginState.isAdmin.subscribe(function(newValue) {
-                if (newValue) {
-                    // wait until after the isAdmin state has run through all subscriptions
-                    setTimeout(self.openOrCloseOnStateChange, 0);
-                    subscription.dispose();
-                }
+            var connectionTab = $("#connection");
+            connectionTab.on("show", function() {
+                self.refreshVisible(true);
             });
+            connectionTab.on("hide", function() {
+                self.refreshVisible(false);
+            });
+
+            self.requestData();
+        };
+
+        self.onUserLoggedIn = function() {
+            self.openOrCloseOnStateChange();
+        };
+
+        self.onUserLoggedOut = function() {
+            self.openOrCloseOnStateChange();
         };
     }
 
-    OCTOPRINT_VIEWMODELS.push([
-        ConnectionViewModel,
-        ["loginStateViewModel", "settingsViewModel", "printerProfilesViewModel"],
-        "#connection_wrapper"
-    ]);
+    OCTOPRINT_VIEWMODELS.push({
+        construct: ConnectionViewModel,
+        dependencies: ["loginStateViewModel", "settingsViewModel", "printerProfilesViewModel"],
+        elements: ["#connection_wrapper"]
+    });
 });
