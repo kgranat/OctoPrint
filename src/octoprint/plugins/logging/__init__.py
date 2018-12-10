@@ -100,12 +100,12 @@ class LoggingPlugin(octoprint.plugin.AssetPlugin,
 
 	def _get_usage(self):
 		import psutil
-		usage = psutil.disk_usage(settings().getBaseFolder("logs"))
+		usage = psutil.disk_usage(settings().getBaseFolder("logs", check_writable=False))
 		return usage.free, usage.total
 
 	def _getLogFiles(self):
 		files = []
-		basedir = settings().getBaseFolder("logs")
+		basedir = settings().getBaseFolder("logs", check_writable=False)
 		for entry in scandir(basedir):
 			files.append({
 				"name": entry.name,
@@ -195,6 +195,7 @@ class LoggingPlugin(octoprint.plugin.AssetPlugin,
 
 	def get_assets(self):
 		return dict(js=["js/logging.js"],
+		            clientjs=["clientjs/logging.js"],
 		            less=["less/logging.less"],
 		            css=["css/logging.css"])
 

@@ -24,7 +24,7 @@ __copyright__ = "Copyright (C) 2014 The OctoPrint Project - Released under terms
 import re
 
 from octoprint.settings import settings
-from octoprint.util import deprecated
+from octoprint.util import deprecated, natural_key
 from octoprint.filemanager import FileDestinations
 
 
@@ -68,8 +68,8 @@ class PrinterInterface(object):
 		"""
 		import octoprint.util.comm as comm
 		return {
-			"ports": comm.serialList(),
-			"baudrates": comm.baudrateList(),
+			"ports": sorted(comm.serialList(), key=natural_key),
+			"baudrates": sorted(comm.baudrateList(), reverse=True),
 			"portPreference": settings().get(["serial", "port"]),
 			"baudratePreference": settings().getInt(["serial", "baudrate"]),
 			"autoconnect": settings().getBoolean(["serial", "autoconnect"])
@@ -231,12 +231,14 @@ class PrinterInterface(object):
 		"""
 		raise NotImplementedError()
 
-	def extrude(self, amount, tags=None, *args, **kwargs):
+	def extrude(self, amount, speed=None, tags=None, *args, **kwargs):
 		"""
 		Extrude ``amount`` millimeters of material from the tool.
 
 		Arguments:
 		    amount (int, float): The amount of material to extrude in mm
+		    speed (int, None): Speed at which to extrude (F parameter). If set to ``None`` (or left out)
+		    the maximum speed of E axis from the printer profile will be used.
 		    tags (set of str): An optional set of tags to attach to the command(s) throughout their lifecycle
 		"""
 		raise NotImplementedError()

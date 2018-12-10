@@ -339,15 +339,15 @@ def find_collision_free_name(filename, extension, existing_filenames, max_power=
 	    u'test_123.gco'
 	    >>> find_collision_free_name("test1234", "g o", [])
 	    u'test1234.g_o'
-	    >>> find_collision_free_name("test12345", "gco", ["test12~1.gco"])
+	    >>> find_collision_free_name("test12345", "gco", ["/test12~1.gco"])
 	    u'test12~2.gco'
-	    >>> many_files = ["test12~{}.gco".format(x) for x in range(10)[1:]]
+	    >>> many_files = ["/test12~{}.gco".format(x) for x in range(10)[1:]]
 	    >>> find_collision_free_name("test12345", "gco", many_files)
 	    u'test1~10.gco'
-	    >>> many_more_files = many_files + ["test1~{}.gco".format(x) for x in range(10, 99)]
+	    >>> many_more_files = many_files + ["/test1~{}.gco".format(x) for x in range(10, 99)]
 	    >>> find_collision_free_name("test12345", "gco", many_more_files)
 	    u'test1~99.gco'
-	    >>> many_more_files_plus_one = many_more_files + ["test1~99.gco"]
+	    >>> many_more_files_plus_one = many_more_files + ["/test1~99.gco"]
 	    >>> find_collision_free_name("test12345", "gco", many_more_files_plus_one)
 	    Traceback (most recent call last):
 	    ...
@@ -357,13 +357,15 @@ def find_collision_free_name(filename, extension, existing_filenames, max_power=
 
 	"""
 
-	if not isinstance(filename, unicode):
-		filename = unicode(filename)
-	if not isinstance(extension, unicode):
-		extension = unicode(extension)
+	filename = to_unicode(filename)
+	extension = to_unicode(extension)
+
+	if filename.startswith(u"/"):
+		filename = filename[1:]
+	existing_filenames = [to_unicode(x[1:] if x.startswith("/") else x) for x in existing_filenames]
 
 	def make_valid(text):
-		return re.sub(r"\s+", "_", text.translate({ord(i):None for i in ".\"/\\[]:;=,"})).lower()
+		return re.sub(u"\s+", u"_", text.translate({ord(i):None for i in ".\"/\\[]:;=,"})).lower()
 
 	filename = make_valid(filename)
 	extension = make_valid(extension)
@@ -849,6 +851,38 @@ def server_reachable(host, port, timeout=3.05, proto="tcp", source=None):
 	except:
 		return False
 
+def parse_mime_type(mime):
+	import cgi
+
+	if not mime or not isinstance(mime, basestring):
+		raise ValueError("mime must be a non empty str or unicode")
+
+	mime, params = cgi.parse_header(mime)
+
+	if mime == "*":
+		mime = "*/*"
+
+	parts = mime.split("/") if "/" in mime else None
+	if not parts or len(parts) != 2:
+		raise ValueError("mime must be a mime type of format type/subtype")
+
+	mime_type, mime_subtype = parts
+	return mime_type.strip(), mime_subtype.strip(), params
+
+def mime_type_matches(mime, other):
+	if not isinstance(mime, tuple):
+		mime = parse_mime_type(mime)
+	if not isinstance(other, tuple):
+		other = parse_mime_type(other)
+
+	mime_type, mime_subtype, _ = mime
+	other_type, other_subtype, _ = other
+
+	type_matches = (mime_type == other_type or mime_type == "*" or other_type == "*")
+	subtype_matches = (mime_subtype == other_subtype or mime_subtype == "*" or other_subtype == "*")
+
+	return type_matches and subtype_matches
+
 @contextlib.contextmanager
 def atomic_write(filename, mode="w+b", prefix="tmp", suffix="", permissions=0o644, max_permissions=0o777):
 	if os.path.exists(filename):
@@ -1236,8 +1270,9 @@ class ResettableTimer(threading.Thread):
 
 class CountedEvent(object):
 
-	def __init__(self, value=0, maximum=None, **kwargs):
+	def __init__(self, value=0, minimum=0, maximum=None, **kwargs):
 		self._counter = 0
+		self._min = minimum
 		self._max = kwargs.get("max", maximum)
 		self._mutex = threading.RLock()
 		self._event = threading.Event()
@@ -1264,11 +1299,14 @@ class CountedEvent(object):
 			else:
 				self._internal_set(self._counter - 1)
 
+	def reset(self):
+		self.clear(completely=True)
+
 	def wait(self, timeout=None):
 		self._event.wait(timeout)
 
 	def blocked(self):
-		return self.counter == 0
+		return self.counter <= 0
 
 	def acquire(self, blocking=1):
 		return self._mutex.acquire(blocking=blocking)
@@ -1279,7 +1317,8 @@ class CountedEvent(object):
 	def _internal_set(self, value):
 		self._counter = value
 		if self._counter <= 0:
-			self._counter = 0
+			if self._min is not None and self._counter < self._min:
+				self._counter = self._min
 			self._event.clear()
 		else:
 			if self._max is not None and self._counter > self._max:
@@ -1554,3 +1593,8 @@ class CaseInsensitiveSet(collections.Set):
 
 	def __len__(self):
 		return len(self.data)
+
+
+# originally from https://stackoverflow.com/a/5967539
+def natural_key(text):
+	return [ int(c) if c.isdigit() else c for c in re.split("(\d+)", text) ]

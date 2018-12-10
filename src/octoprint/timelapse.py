@@ -21,6 +21,7 @@ import octoprint.util as util
 
 from octoprint.settings import settings
 from octoprint.events import eventManager, Events
+from octoprint.plugin import plugin_manager
 from octoprint.util import monotonic_time
 
 import sarge
@@ -60,6 +61,30 @@ _cleanup_lock = threading.RLock()
 # lock for timelapse job
 _job_lock = threading.RLock()
 
+# cached valid timelapse extensions
+_extensions = None
+
+def valid_timelapse(path):
+	global _extensions
+
+	if _extensions is None:
+		# create list of extensions
+		extensions = ["mpg", "mpeg", "mp4", "m4v", "mkv"]
+
+		hooks = plugin_manager().get_hooks("octoprint.timelapse.extensions")
+		for name, hook in hooks.items():
+			try:
+				result = hook()
+				if result is None or not isinstance(result, list):
+					continue
+				extensions += result
+			except:
+				logging.getLogger(__name__).exception("Exception while retrieving additional timelapse extensions from hook {name}".format(name=name))
+
+		_extensions = list(set(extensions))
+
+	return util.is_allowed_file(path, _extensions)
+
 
 def _extract_prefix(filename):
 	"""
@@ -75,18 +100,18 @@ def _extract_prefix(filename):
 
 
 def last_modified_finished():
-	return os.stat(settings().getBaseFolder("timelapse")).st_mtime
+	return os.stat(settings().getBaseFolder("timelapse", check_writable=False)).st_mtime
 
 
 def last_modified_unrendered():
-	return os.stat(settings().getBaseFolder("timelapse_tmp")).st_mtime
+	return os.stat(settings().getBaseFolder("timelapse_tmp", check_writable=False)).st_mtime
 
 
 def get_finished_timelapses():
 	files = []
-	basedir = settings().getBaseFolder("timelapse")
+	basedir = settings().getBaseFolder("timelapse", check_writable=False)
 	for entry in scandir(basedir):
-		if not fnmatch.fnmatch(entry.name, "*.m*"):
+		if util.is_hidden_path(entry.path) or not valid_timelapse(entry.path):
 			continue
 		files.append({
 			"name": entry.name,
@@ -103,7 +128,7 @@ def get_unrendered_timelapses():
 
 	delete_old_unrendered_timelapses()
 
-	basedir = settings().getBaseFolder("timelapse_tmp")
+	basedir = settings().getBaseFolder("timelapse_tmp", check_writable=False)
 	jobs = collections.defaultdict(lambda: dict(count=0, size=None, bytes=0, date=None, timestamp=None))
 
 	for entry in scandir(basedir):
@@ -154,9 +179,12 @@ def delete_unrendered_timelapse(name):
 					logging.getLogger(__name__).exception("Error while processing file {} during cleanup".format(entry.name))
 
 
-def render_unrendered_timelapse(name, gcode=None, postfix=None, fps=25):
+def render_unrendered_timelapse(name, gcode=None, postfix=None, fps=None):
 	capture_dir = settings().getBaseFolder("timelapse_tmp")
 	output_dir = settings().getBaseFolder("timelapse")
+
+	if fps is None:
+		fps = settings().getInt(["webcam", "timelapse", "fps"])
 	threads = settings().get(["webcam", "ffmpegThreads"])
 
 	job = TimelapseRenderJob(capture_dir, output_dir, name,

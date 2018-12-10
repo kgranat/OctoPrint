@@ -91,7 +91,7 @@ default_settings = {
 		"autoconnect": False,
 		"log": False,
 		"timeout": {
-			"detection": 0.5,
+			"detection": 1,
 			"connection": 10,
 			"communication": 30,
 			"communicationBusy": 3,
@@ -100,7 +100,9 @@ default_settings = {
 			"temperatureAutoreport": 2,
 			"sdStatus": 1,
 			"sdStatusAutoreport": 1,
-			"resendOk": .5
+			"resendOk": .5,
+			"baudrateDetectionPause": 1.0,
+			"positionLogWait": 10.0,
 		},
 		"maxCommunicationTimeouts": {
 			"idle": 2,
@@ -118,7 +120,8 @@ default_settings = {
 		"logResends": True,
 		"supportResendsWithoutOk": "detect",
 		"logPositionOnPause": True,
-		"logPositionOnCancel": True,
+		"logPositionOnCancel": False,
+		"abortHeatupOnCancel": True,
 		"waitForStartOnConnect": False,
 		"alwaysSendChecksum": False,
 		"neverSendChecksum": False,
@@ -139,14 +142,16 @@ default_settings = {
 		"capabilities": {
 			"autoreport_temp": True,
 			"autoreport_sdstatus": True,
-			"busy_protocol": True
+			"busy_protocol": True,
+			"emergency_parser": True
 		},
 
 		# command specific flags
-		"triggerOkForM29": True
+		"triggerOkForM29": True,
+		"blockM0M1": True
 	},
 	"server": {
-		"host": "0.0.0.0",
+		"host": None,
 		"port": 5000,
 		"firstRun": True,
 		"startOnceInSafeMode": False,
@@ -163,7 +168,8 @@ default_settings = {
 			"schemeFallback": None,
 			"hostFallback": None,
 			"serverFallback": None,
-			"portFallback": None
+			"portFallback": None,
+			"trustedDownstream": []
 		},
 		"uploads": {
 			"maxSize":  1 * 1024 * 1024 * 1024, # 1GB
@@ -194,6 +200,10 @@ default_settings = {
 		"preemptiveCache": {
 			"exceptions": [],
 			"until": 7
+		},
+		"ipCheck": {
+			"enabled": True,
+			"trustedSubnets": []
 		}
 	},
 	"webcam": {
@@ -236,9 +246,8 @@ default_settings = {
 		"pollWatched": False,
 		"modelSizeDetection": True,
 		"printCancelConfirmation": True,
-		"autoUppercaseBlacklist": ["M117"],
-		"g90InfluencesExtruder": False,
-		"legacyPluginAssets": False # TODO remove again in 1.3.8
+		"autoUppercaseBlacklist": ["M117", "M118"],
+		"g90InfluencesExtruder": False
 	},
 	"folder": {
 		"uploads": None,
@@ -275,21 +284,23 @@ default_settings = {
 		"name": "",
 		"color": "default",
 		"colorTransparent": False,
+		"colorIcon": True,
 		"defaultLanguage": "_default",
 		"showFahrenheitAlso": False,
 		"components": {
 			"order": {
-				"navbar": ["settings", "systemmenu", "plugin_announcements", "login"],
+				"navbar": ["settings", "systemmenu", "plugin_announcements", "plugin_pi_support", "login"],
 				"sidebar": ["plugin_printer_safety_check", "connection", "state", "files"],
 				"tab": ["temperature", "control", "gcodeviewer", "terminal", "timelapse"],
 				"settings": [
 					"section_printer", "serial", "printerprofiles", "temperatures", "terminalfilters", "gcodescripts",
-					"section_features", "features", "webcam", "accesscontrol", "gcodevisualizer", "api",
-					"section_octoprint", "server", "folders", "appearance", "plugin_logging", "plugin_pluginmanager", "plugin_softwareupdate", "plugin_announcements"
+					"section_features", "features", "webcam", "accesscontrol", "gcodevisualizer", "api", "plugin_appkeys",
+					"section_octoprint", "server", "folders", "appearance", "plugin_logging", "plugin_pluginmanager",
+					"plugin_softwareupdate", "plugin_announcements", "plugin_backup", "plugin_tracking", "plugin_pi_support"
 				],
 				"usersettings": ["access", "interface"],
 				"wizard": ["access"],
-				"about": ["about", "plugin_octopi_support", "supporters", "authors", "changelog", "license", "thirdparty", "plugin_pluginmanager"],
+				"about": ["about", "plugin_pi_support", "supporters", "authors", "changelog", "license", "thirdparty", "plugin_pluginmanager"],
 				"generic": []
 			},
 			"disabled": {
@@ -333,7 +344,7 @@ default_settings = {
 		"apps": {}
 	},
 	"terminalFilters": [
-		{ "name": "Suppress temperature messages", "regex": "(Send: (N\d+\s+)?M105)|(Recv:\s+(ok\s+)?(B|T\d*):)" },
+		{ "name": "Suppress temperature messages", "regex": "(Send: (N\d+\s+)?M105)|(Recv:\s+(ok\s+)?.*(B|T\d*):\d+)" },
 		{ "name": "Suppress SD status messages", "regex": "(Send: (N\d+\s+)?M27)|(Recv: SD printing byte)|(Recv: Not SD printing)" },
 		{ "name": "Suppress wait responses", "regex": "Recv: wait"}
 	],
@@ -344,7 +355,7 @@ default_settings = {
 		"gcode": {
 			"afterPrintCancelled": "; disable motors\nM84\n\n;disable all heaters\n{% snippet 'disable_hotends' %}\n{% snippet 'disable_bed' %}\n;disable fan\nM106 S0",
 			"snippets": {
-				"disable_hotends": "{% for tool in range(printer_profile.extruder.count) %}M104 T{{ tool }} S0\n{% endfor %}",
+				"disable_hotends": "{% if printer_profile.extruder.sharedNozzle %}M104 T0 S0\n{% else %}{% for tool in range(printer_profile.extruder.count) %}M104 T{{ tool }} S0\n{% endfor %}{% endif %}",
 				"disable_bed": "{% if printer_profile.heatedBed %}M140 S0\n{% endif %}"
 			}
 		}
@@ -379,7 +390,6 @@ default_settings = {
 			"includeFilenameInOpened": True,
 			"hasBed": True,
 			"repetierStyleTargetTemperature": False,
-			"repetierStyleResends": False,
 			"okBeforeCommandOutput": False,
 			"smoothieTemperatureReporting": False,
 			"reprapfwM114": False,
@@ -402,12 +412,14 @@ default_settings = {
 			"resetLines": ['start', 'Marlin: Virtual Marlin!', '\x80', 'SD card ok'],
 			"preparedOks": [],
 			"okFormatString": "ok",
-			"m115FormatString": "FIRMWARE_NAME: {firmware_name} PROTOCOL_VERSION:1.0",
-			"m115ReportCapabilities": False,
+			"m115FormatString": "FIRMWARE_NAME:{firmware_name} PROTOCOL_VERSION:1.0",
+			"m115ReportCapabilities": True,
 			"capabilities": {
 				"AUTOREPORT_TEMP": True,
-				"AUTOREPORT_SD_STATUS": True
+				"AUTOREPORT_SD_STATUS": True,
+				"EMERGENCY_PARSER": True
 			},
+			"m114FormatString": "X:{x} Y:{y} Z:{z} E:{e[current]} Count: A:{a} B:{b} C:{c}",
 			"ambientTemperature": 21.3,
 			"errors": {
 				"checksum_mismatch": "Checksum mismatch",
@@ -592,6 +604,8 @@ class Settings(object):
 
 		self._basedir = None
 
+		assert(isinstance(default_settings, dict))
+
 		self._map = HierarchicalChainMap(dict(), default_settings)
 
 		self._config = None
@@ -618,6 +632,8 @@ class Settings(object):
 
 		self._script_env = self._init_script_templating()
 
+		self.sanity_check_folders(folders=["logs", ])
+
 	def _init_basedir(self, basedir):
 		if basedir is not None:
 			self._basedir = basedir
@@ -625,7 +641,18 @@ class Settings(object):
 			self._basedir = _default_basedir(_APPNAME)
 
 		if not os.path.isdir(self._basedir):
-			os.makedirs(self._basedir)
+			try:
+				os.makedirs(self._basedir)
+			except:
+				self._logger.fatal("Could not create basefolder at {}. This is a fatal error, OctoPrint "
+				                   "can't run without a writable base folder.".format(self._basedir), exc_info=1)
+				raise
+
+	def sanity_check_folders(self, folders=None):
+		if folders is None:
+			folders = default_settings["folder"].keys()
+		for folder in folders:
+			self.getBaseFolder(folder, check_writable=True, deep_check_writable=True, log_error=True)
 
 	def _get_default_folder(self, type):
 		folder = default_settings["folder"][type]
@@ -849,6 +876,7 @@ class Settings(object):
 				try:
 					self._config = yaml.safe_load(f)
 					self._mtime = self.last_modified
+
 				except yaml.YAMLError as e:
 					details = e.message
 
@@ -863,10 +891,12 @@ class Settings(object):
 					                      details=details,
 					                      line=line,
 					                      column=column)
+
 				except:
 					raise
+
 		# changed from else to handle cases where the file exists, but is empty / 0 bytes
-		if not self._config:
+		if not self._config or not isinstance(self._config, dict):
 			self._config = dict()
 
 		if migrate:
@@ -919,7 +949,8 @@ class Settings(object):
 			self._migrate_gcode_scripts,
 			self._migrate_core_system_commands,
 			self._migrate_serial_features,
-			self._migrate_resend_without_ok
+			self._migrate_resend_without_ok,
+			self._migrate_string_temperature_profile_values
 		)
 
 		for migrate in migrators:
@@ -931,6 +962,8 @@ class Settings(object):
 	def _migrate_gcode_scripts(self, config):
 		"""
 		Migrates an old development version of gcode scripts to the new template based format.
+
+		Added in 1.2.0
 		"""
 
 		dirty = False
@@ -955,6 +988,8 @@ class Settings(object):
 	def _migrate_printer_parameters(self, config):
 		"""
 		Migrates the old "printer > parameters" data structure to the new printer profile mechanism.
+
+		Added in 1.2.0
 		"""
 		default_profile = config["printerProfiles"]["defaultProfile"] if "printerProfiles" in config and "defaultProfile" in config["printerProfiles"] else dict()
 		dirty = False
@@ -1020,6 +1055,8 @@ class Settings(object):
 		"""
 		Migrates the old "server > baseUrl" and "server > scheme" configuration entries to
 		"server > reverseProxy > prefixFallback" and "server > reverseProxy > schemeFallback".
+
+		Added in 1.2.0
 		"""
 		if "server" in config.keys() and ("baseUrl" in config["server"] or "scheme" in config["server"]):
 			prefix = ""
@@ -1047,6 +1084,8 @@ class Settings(object):
 		"""
 		Migrates the old event configuration format of type "events > gcodeCommandTrigger" and
 		"event > systemCommandTrigger" to the new events format.
+
+		Added in 1.2.0
 		"""
 		if "events" in config.keys() and ("gcodeCommandTrigger" in config["events"] or "systemCommandTrigger" in config["events"]):
 			self._logger.info("Migrating config (event subscriptions)...")
@@ -1142,6 +1181,8 @@ class Settings(object):
 
 		If server commands for action is not yet set, migrates command. Otherwise only
 		deletes definition from custom system commands.
+
+		Added in 1.3.0
 		"""
 		changed = False
 
@@ -1188,6 +1229,8 @@ class Settings(object):
 		Migrates feature flags identified as serial specific from the feature to the serial config tree and vice versa.
 
 		If a flag already exists in the target tree, only deletes the copy in the source tree.
+
+		Added in 1.3.7
 		"""
 		changed = False
 
@@ -1231,6 +1274,8 @@ class Settings(object):
 		Migrates supportResendsWithoutOk flag from boolean to ("always", "detect", "never") value range.
 
 		True gets migrated to "always", False to "detect" (which is the new default).
+
+		Added in 1.3.7
 		"""
 		if "serial" in config and "supportResendsWithoutOk" in config["serial"] \
 				and config["serial"]["supportResendsWithoutOk"] not in ("always", "detect", "never"):
@@ -1240,6 +1285,28 @@ class Settings(object):
 			else:
 				config["serial"]["supportResendsWithoutOk"] = "detect"
 			return True
+		return False
+
+	def _migrate_string_temperature_profile_values(self, config):
+		"""
+		Migrates/fixes temperature profile wrongly saved with strings instead of ints as temperature values.
+
+		Added in 1.3.8
+		"""
+		if "temperature" in config and "profiles" in config["temperature"]:
+			profiles = config["temperature"]["profiles"]
+			if any(map(lambda x: not isinstance(x.get("extruder", 0), int) or not isinstance(x.get("bed", 0), int),
+			           profiles)):
+				result = []
+				for profile in profiles:
+					try:
+						profile["extruder"] = int(profile["extruder"])
+						profile["bed"] = int(profile["bed"])
+					except ValueError:
+						pass
+					result.append(profile)
+				config["temperature"]["profiles"] = result
+				return True
 		return False
 
 	def backup(self, suffix, path=None):
@@ -1371,17 +1438,22 @@ class Settings(object):
 	#~~ getter
 
 	def get(self, path, **kwargs):
-		error_on_path = kwargs.get("error_on_path", False)
-		new_kwargs = dict(kwargs)
-		if "error_on_path" in new_kwargs:
-			del new_kwargs["error_on_path"]
+		error_on_path = kwargs.pop("error_on_path", False)
+		validator = kwargs.pop("validator", None)
+		fallback = kwargs.pop("fallback", None)
 
-		try:
-			return self._get_value(path, **new_kwargs)
-		except NoSuchSettingsPath:
-			if error_on_path:
-				raise
-			return None
+		def process():
+			try:
+				return self._get_value(path, **kwargs)
+			except NoSuchSettingsPath:
+				if error_on_path:
+					raise
+				return None
+
+		result = process()
+		if callable(validator) and not validator(result):
+			result = fallback
+		return result
 
 	def getInt(self, path, **kwargs):
 		minimum = kwargs.pop("min", None)
@@ -1437,7 +1509,7 @@ class Settings(object):
 			return value.lower() in valid_boolean_trues
 		return value is not None
 
-	def getBaseFolder(self, type, create=True):
+	def getBaseFolder(self, type, create=True, allow_fallback=True, log_error=False, check_writable=True, deep_check_writable=False):
 		if type not in default_settings["folder"].keys() + ["base"]:
 			return None
 
@@ -1445,17 +1517,33 @@ class Settings(object):
 			return self._basedir
 
 		folder = self.get(["folder", type])
+		default_folder = self._get_default_folder(type)
 		if folder is None:
-			folder = self._get_default_folder(type)
+			folder = default_folder
 
-		if not os.path.exists(folder):
-			if create:
-				os.makedirs(folder)
+		try:
+			_validate_folder(folder, create=create, check_writable=check_writable, deep_check_writable=deep_check_writable, log_error=log_error)
+		except:
+			if folder != default_folder and allow_fallback:
+				if log_error:
+					self._logger.error("Invalid configured {} folder at {}, attempting to "
+					                   "fall back on default folder at {}".format(type,
+					                                                              folder,
+					                                                              default_folder))
+				_validate_folder(default_folder, create=create, check_writable=check_writable, deep_check_writable=deep_check_writable, log_error=log_error)
+				folder = default_folder
+
+				try:
+					del self._config["folder"][type]
+					if not len(self._config["folder"]):
+						del self._config["folder"]
+					self._dirty = True
+					self._dirty_time = time.time()
+					self.save()
+				except KeyError:
+					pass
 			else:
-				raise IOError("No such folder: {}".format(folder))
-		elif os.path.isfile(folder):
-			# hardening against misconfiguration, see #1953
-			raise IOError("Expected a folder at {} but found a file instead".format(folder))
+				raise
 
 		return folder
 
@@ -1507,7 +1595,7 @@ class Settings(object):
 
 	#~~ setter
 
-	def set(self, path, value, force=False, defaults=None, config=None, preprocessors=None, error_on_path=False):
+	def set(self, path, value, force=False, defaults=None, config=None, preprocessors=None, error_on_path=False, *args, **kwargs):
 		if not path:
 			if error_on_path:
 				raise NoSuchSettingsPath()
@@ -1621,7 +1709,7 @@ class Settings(object):
 		else:
 			self.set(path, False, **kwargs)
 
-	def setBaseFolder(self, type, path, force=False):
+	def setBaseFolder(self, type, path, force=False, validate=True):
 		if type not in default_settings["folder"].keys():
 			return None
 
@@ -1634,6 +1722,9 @@ class Settings(object):
 			self._dirty = True
 			self._dirty_time = time.time()
 		elif (path != currentPath and path != defaultPath) or force:
+			if validate:
+				_validate_folder(path, check_writable=True, deep_check_writable=True)
+
 			if not "folder" in self._config.keys():
 				self._config["folder"] = {}
 			self._config["folder"][type] = path
@@ -1673,3 +1764,48 @@ def _default_basedir(applicationName):
 		return os.path.join(os.environ["APPDATA"], applicationName)
 	else:
 		return os.path.expanduser(os.path.join("~", "." + applicationName.lower()))
+
+
+def _validate_folder(folder, create=True, check_writable=True, deep_check_writable=False, log_error=False):
+	logger = logging.getLogger(__name__)
+
+	if not os.path.exists(folder):
+		if os.path.islink(folder):
+			# broken symlink, see #2644
+			raise IOError("Folder at {} appears to be a broken symlink".format(folder))
+
+		elif create:
+			# non existing, but we are allowed to create it
+			try:
+				os.makedirs(folder)
+			except:
+				if log_error:
+					logger.exception("Could not create {}".format(folder))
+				raise IOError("Folder for type {} at {} does not exist and creation failed".format(type, folder))
+
+		else:
+			# not extisting, not allowed to create it
+			raise IOError("No such folder: {}".format(folder))
+
+	elif os.path.isfile(folder):
+		# hardening against misconfiguration, see #1953
+		raise IOError("Expected a folder at {} but found a file instead".format(folder))
+
+	elif check_writable:
+		# make sure we can also write into the folder
+		error = "Folder at {} doesn't appear to be writable, please fix its permissions".format(folder)
+		if not os.access(folder, os.W_OK):
+			raise IOError(error)
+
+		elif deep_check_writable:
+			# try to write a file to the folder - on network shares that might be the only reliable way
+			# to determine whether things are *actually* writable
+			testfile = os.path.join(folder, ".testballoon.txt")
+			try:
+				with open(testfile, "wb") as f:
+					f.write("test")
+				os.remove(testfile)
+			except:
+				if log_error:
+					logger.exception("Could not write test file to {}".format(folder))
+				raise IOError(error)

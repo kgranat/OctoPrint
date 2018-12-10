@@ -75,7 +75,7 @@ All GCODE scripts have access to the following template variables through the te
   * ``last_temperature``: Last actual and target temperature reported for all available tools and if available the
     heated bed. This is a dictionary of key-value pairs. The keys are the indices of the available tools (``0``, ``1``,
     ...) and ``b`` for the heated bed. The values are a dictionary consisting of ``actual`` and ``target`` keys mapped
-    to the corresponding temperature in degrees celsius. Note that not all tools your printer has must necessarily be
+    to the corresponding temperature in degrees Celsius. Note that not all tools your printer has must necessarily be
     present here, neither must the heated bed - it depends on whether OctoPrint has values for a tool or the bed. Also
     note that ``actual`` and ``target`` might be ``None``.
   * ``script``: An object wrapping the script's type (``gcode``) and name (e.g. ``afterPrintCancelled``) as ``script.type``
@@ -157,9 +157,13 @@ The ``disable_hotends`` snippet is defined as follows:
 .. code-block:: jinja
    :caption: Default ``disable_hotends`` snippet
 
+   {% if printer_profile.extruder.sharedNozzle %}
+   M104 T0 S0
+   {% else %}
    {% for tool in range(printer_profile.extruder.count) %}
    M104 T{{ tool }} S0
    {% endfor %}
+   {% endif %}
 
 The ``disable_bed`` snippet is defined as follows:
 

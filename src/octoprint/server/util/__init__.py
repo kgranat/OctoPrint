@@ -43,7 +43,7 @@ def enforceApiKeyRequestHandler():
 
 	apikey = get_api_key(_flask.request)
 
-	if apikey is None:
+	if not apikey:
 		return _flask.make_response("No API key provided", 403)
 
 	if apikey != octoprint.server.UI_API_KEY and not settings().getBoolean(["api", "enabled"]):
@@ -74,6 +74,8 @@ def loginFromApiKeyRequestHandler():
 	user = get_user_for_apikey(apikey)
 	if not loginUser(user):
 		return _flask.make_response("Invalid API key", 403)
+
+	_flask.g.login_via_apikey = True
 
 
 def loginFromAuthorizationHeaderRequestHandler():

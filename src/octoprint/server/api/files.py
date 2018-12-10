@@ -9,7 +9,7 @@ from flask import request, jsonify, make_response, url_for
 
 from octoprint.filemanager.destinations import FileDestinations
 from octoprint.settings import settings, valid_boolean_trues
-from octoprint.server import printer, fileManager, slicingManager, eventManager, NO_CONTENT
+from octoprint.server import printer, fileManager, slicingManager, eventManager, NO_CONTENT, current_user
 from octoprint.server.util.flask import restricted_access, get_json_command_from_request, with_revalidation_checking
 from octoprint.server.api import api
 from octoprint.events import Events
@@ -18,6 +18,7 @@ import octoprint.filemanager.util
 import octoprint.filemanager.storage
 import octoprint.slicing
 
+import os
 import psutil
 import hashlib
 import logging
@@ -102,7 +103,7 @@ def readGcodeFiles():
 	files = _getFileList(FileDestinations.LOCAL, filter=filter, recursive=recursive, allow_from_cache=not force)
 	files.extend(_getFileList(FileDestinations.SDCARD))
 
-	usage = psutil.disk_usage(settings().getBaseFolder("uploads"))
+	usage = psutil.disk_usage(settings().getBaseFolder("uploads", check_writable=False))
 	return jsonify(files=files, free=usage.free, total=usage.total)
 
 
@@ -125,14 +126,14 @@ def readGcodeFilesForOrigin(origin):
 	files = _getFileList(origin, filter=filter, recursive=recursive, allow_from_cache=not force)
 
 	if origin == FileDestinations.LOCAL:
-		usage = psutil.disk_usage(settings().getBaseFolder("uploads"))
+		usage = psutil.disk_usage(settings().getBaseFolder("uploads", check_writable=False))
 		return jsonify(files=files, free=usage.free, total=usage.total)
 	else:
 		return jsonify(files=files)
 
 
 def _getFileDetails(origin, path, recursive=True):
-	parent, path = fileManager.split_path(origin, path)
+	parent, path = os.path.split(path)
 	files = _getFileList(origin, path=parent, recursive=recursive)
 
 	for f in files:
@@ -149,8 +150,16 @@ def _getFileList(origin, path=None, filter=None, recursive=False, allow_from_cac
 		files = []
 		if sdFileList is not None:
 			for sdFile, sdSize in sdFileList:
+				type_path = octoprint.filemanager.get_file_type(sdFile)
+				if not type_path:
+					# only supported extensions
+					continue
+				else:
+					file_type = type_path[0]
+
 				file = {
-					"type": "machinecode",
+					"type": file_type,
+					"typePath": type_path,
 					"name": sdFile,
 					"display": sdFile,
 					"path": sdFile,
@@ -316,6 +325,8 @@ def uploadGcodeFile(target):
 
 		reselect = printer.is_current_file(futureFullPathInStorage, sd)
 
+		user = current_user.get_name()
+
 		def fileProcessingFinished(filename, absFilename, destination):
 			"""
 			Callback for when the file processing (upload, optional slicing, addition to analysis queue) has
@@ -340,7 +351,7 @@ def uploadGcodeFile(target):
 			exact file is already selected, such reloading it.
 			"""
 			if octoprint.filemanager.valid_file_type(added_file, "gcode") and (selectAfterUpload or printAfterSelect or reselect):
-				printer.select_file(absFilename, destination == FileDestinations.SDCARD, printAfterSelect)
+				printer.select_file(absFilename, destination == FileDestinations.SDCARD, printAfterSelect, user)
 
 		try:
 			added_file = fileManager.add_file(FileDestinations.LOCAL, futureFullPathInStorage, upload,
@@ -485,6 +496,8 @@ def gcodeFileCommand(filename, target):
 	if response is not None:
 		return response
 
+	user = current_user.get_name()
+
 	if command == "select":
 		if not _verifyFileExists(target, filename):
 			return make_response("File not found on '%s': %s" % (target, filename), 404)
@@ -505,7 +518,7 @@ def gcodeFileCommand(filename, target):
 			sd = True
 		else:
 			filenameToSelect = fileManager.path_on_disk(target, filename)
-		printer.select_file(filenameToSelect, sd, printAfterLoading)
+		printer.select_file(filenameToSelect, sd, printAfterLoading, user)
 
 	elif command == "slice":
 		if not _verifyFileExists(target, filename):
@@ -608,7 +621,7 @@ def gcodeFileCommand(filename, target):
 					sd = True
 				else:
 					filenameToSelect = fileManager.path_on_disk(target, path)
-				printer.select_file(filenameToSelect, sd, print_after_slicing)
+				printer.select_file(filenameToSelect, sd, print_after_slicing, user)
 
 		try:
 			fileManager.slice(slicer, target, filename, target, full_path,
