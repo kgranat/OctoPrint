@@ -14,7 +14,6 @@ from distutils.command.clean import clean as _clean
 
 
 def package_data_dirs(source, sub_folders):
-	import os
 	dirs = []
 
 	for d in sub_folders:
@@ -49,6 +48,22 @@ def recursively_handle_files(directory, file_matcher, folder_matcher=None, folde
 				folder_handler(path, sub_applied_handler)
 
 	return applied_handler
+
+
+def has_requirement(requirement, requirements):
+	if requirement is None or requirements is None:
+		return False
+
+	assert isinstance(requirement, basestring)
+	assert isinstance(requirements, (list, tuple))
+	assert all(map(lambda x: x is not None and isinstance(x, basestring), requirements))
+
+	requirement = requirement.lower()
+	requirements = [r.lower() for r in requirements]
+	compat = [requirement.lower() + c for c in ("<", "<=", "!=", "==", ">=", ">", "~=", "===")]
+
+	return requirement in requirements or \
+	       any(any(r.startswith(c) for c in compat) for r in requirements)
 
 
 class CleanCommand(_clean):
@@ -480,7 +495,7 @@ def create_plugin_setup_parameters(identifier="todo", name="TODO", version="0.1"
 		requires = ["OctoPrint"]
 	if not isinstance(requires, list):
 		raise ValueError("requires must be a list")
-	if "OctoPrint" not in requires:
+	if not has_requirement("OctoPrint", requires):
 		requires = ["OctoPrint"] + list(requires)
 
 	if extra_requires is None:
@@ -509,8 +524,7 @@ def create_plugin_setup_parameters(identifier="todo", name="TODO", version="0.1"
 	translation_dir = os.path.join(source_folder, "translations")
 	pot_file = os.path.join(translation_dir, "messages.pot")
 	bundled_dir = os.path.join(source_folder, package, "translations")
-	if os.path.isdir(translation_dir) and os.path.isfile(pot_file):
-		cmdclass.update(get_babel_commandclasses(pot_file=pot_file, output_dir=translation_dir, bundled_dir=bundled_dir, pack_name_prefix="{name}-i18n-".format(**locals()), pack_path_prefix="_plugins/{identifier}/".format(**locals())))
+	cmdclass.update(get_babel_commandclasses(pot_file=pot_file, output_dir=translation_dir, bundled_dir=bundled_dir, pack_name_prefix="{name}-i18n-".format(**locals()), pack_path_prefix="_plugins/{identifier}/".format(**locals())))
 
 	from setuptools import find_packages
 	packages = list(set([package] + filter(lambda x: x.startswith("{package}.".format(package=package)), find_packages(where=source_folder, exclude=ignored_packages)) + additional_packages))

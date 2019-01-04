@@ -1,61 +1,57 @@
 # Supporters 
 
 Development of this version of OctoPrint wouldn't have been possible without
-[financial support by the community](http://octoprint.org/support-octoprint/) -
+[the financial support by the community](https://octoprint.org/support-octoprint/) -
 thanks to everyone who contributed!
 
 ## Patreon Patrons
 
-  * 3D Moniak
-  * Aleph Objects, Inc.
+  * Andre Bubel
   * Andrew Moorby
   * Arnljot Arntsen
-  * BEEVERYCREATIVE
   * Boris Hussein
   * Brad Jackson
-  * Brian E. Tyler
   * Christian Petropolis
+  * Christian Wolf
   * COLLE+McVOY
-  * CreativeTools
   * D Brian Kimmel
   * DeltaMaker 3D Printers
   * E3D BigBox
+  * Eric Betts
+  * Eric Slape
   * Ernesto Martinez
-  * F. Kunsmann
   * Frank Sander
-  * Gary Deen
-  * Gary N McKinney
   * George Robles
-  * günter weber
-  * James Seigel
-  * Jason Lawrence
-  * Jeff Moe
+  * Jared Go
+  * Jeff Renfer
+  * Jefferson Hunt
+  * Jeremiah Avery
+  * Joseph Payne
   * Josh Daniels
+  * Joshua Wills
+  * Justin Kaufman
   * Kaile Riser
   * Kale Stedman
   * Kazuhiro Ogura
+  * LA 3D Printer Repair
+  * Lewis Newby
+  * LulzBot®
   * Makespace Madrid
-  * Marcus Ackermann
   * Mark Walker
   * Michael Aumock
   * Miles Flavel
-  * mitchell hirsch
-  * Mohammed khorakiwala
-  * Noe Ruiz
+  * Mosaic Manufacturing
   * Patrick McGinnis
-  * Peter Schmehl
-  * PRINT3Dforum.com
+  * Prof Yuh Wen Chen
   * Randy C. Will
+  * Robert Gusek
   * Roger Strolz
-  * Roy Cortes
   * Samer Najia
   * Simon Hallam
   * Stefan Krister
-  * Stephane Schittly
   * Sven Mueller
-  * Symbiotic Devices
   * Thomas Hatley
-  * Timeshell.ca
+  * Timothy D Hoogland
   * Trent Shumay
 
-and 1062 more wonderful people pledging on the [Patreon campaign](https://patreon.com/foosel)!
+and 1446 more wonderful people pledging on the [Patreon campaign](https://patreon.com/foosel)!

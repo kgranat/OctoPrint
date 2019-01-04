@@ -207,8 +207,8 @@ FolderAdded
 
    Payload:
      * ``storage``: the storage's identifier
-     * ``path``: the folders's path within its storage location
-     * ``name``: the folders's name
+     * ``path``: the folder's path within its storage location
+     * ``name``: the folder's name
 
    .. note::
 
@@ -220,8 +220,8 @@ FolderRemoved
 
    Payload:
      * ``storage``: the storage's identifier
-     * ``path``: the folders's path within its storage location
-     * ``name``: the folders's name
+     * ``path``: the folder's path within its storage location
+     * ``name``: the folder's name
 
    .. note::
 
@@ -265,7 +265,7 @@ MetadataAnalysisFinished
      * ``name``: the file's name
      * ``path``: the file's path within its storage location
      * ``origin``: the file's origin storage location
-     * ``result``: the analysis result -- this is a python object currently only available for internal use
+     * ``result``: the analysis result -- this is a Python object currently only available for internal use
 
    .. deprecated:: 1.3.0
 
@@ -338,6 +338,8 @@ PrintFailed
      * ``name``: the file's name
      * ``path``: the file's path within its storage location
      * ``origin``: the origin storage location of the file, either ``local`` or ``sdcard``
+     * ``time``: the elapsed time of the print when it failed, in seconds (float)
+     * ``reason``: the reason the print failed, either ``cancelled`` or ``error``
 
    .. deprecated:: 1.3.0
 
@@ -363,8 +365,18 @@ PrintDone
 
       Still available for reasons of backwards compatibility. Will be removed with 1.4.0.
 
+PrintCancelling
+   The print is about to be cancelled.
+
+   Payload:
+
+     * ``name``: the file's name
+     * ``path``: the file's path within its storage location
+     * ``origin``: the origin storage location of the file, either ``local`` or ``sdcard``
+     * ``firmwareError``: the firmware error that caused cancelling the print job, if any
+
 PrintCancelled
-   The print has been cancelled via the cancel button.
+   The print has been cancelled.
 
    Payload:
 

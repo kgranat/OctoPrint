@@ -21,6 +21,8 @@ from functools import wraps
 import warnings
 import contextlib
 import collections
+import frozendict
+import copy
 
 try:
 	import queue
@@ -337,15 +339,15 @@ def find_collision_free_name(filename, extension, existing_filenames, max_power=
 	    u'test_123.gco'
 	    >>> find_collision_free_name("test1234", "g o", [])
 	    u'test1234.g_o'
-	    >>> find_collision_free_name("test12345", "gco", ["test12~1.gco"])
+	    >>> find_collision_free_name("test12345", "gco", ["/test12~1.gco"])
 	    u'test12~2.gco'
-	    >>> many_files = ["test12~{}.gco".format(x) for x in range(10)[1:]]
+	    >>> many_files = ["/test12~{}.gco".format(x) for x in range(10)[1:]]
 	    >>> find_collision_free_name("test12345", "gco", many_files)
 	    u'test1~10.gco'
-	    >>> many_more_files = many_files + ["test1~{}.gco".format(x) for x in range(10, 99)]
+	    >>> many_more_files = many_files + ["/test1~{}.gco".format(x) for x in range(10, 99)]
 	    >>> find_collision_free_name("test12345", "gco", many_more_files)
 	    u'test1~99.gco'
-	    >>> many_more_files_plus_one = many_more_files + ["test1~99.gco"]
+	    >>> many_more_files_plus_one = many_more_files + ["/test1~99.gco"]
 	    >>> find_collision_free_name("test12345", "gco", many_more_files_plus_one)
 	    Traceback (most recent call last):
 	    ...
@@ -355,13 +357,15 @@ def find_collision_free_name(filename, extension, existing_filenames, max_power=
 
 	"""
 
-	if not isinstance(filename, unicode):
-		filename = unicode(filename)
-	if not isinstance(extension, unicode):
-		extension = unicode(extension)
+	filename = to_unicode(filename)
+	extension = to_unicode(extension)
+
+	if filename.startswith(u"/"):
+		filename = filename[1:]
+	existing_filenames = [to_unicode(x[1:] if x.startswith("/") else x) for x in existing_filenames]
 
 	def make_valid(text):
-		return re.sub(r"\s+", "_", text.translate({ord(i):None for i in ".\"/\\[]:;=,"})).lower()
+		return re.sub(u"\s+", u"_", text.translate({ord(i):None for i in ".\"/\\[]:;=,"})).lower()
 
 	filename = make_valid(filename)
 	extension = make_valid(extension)
@@ -847,6 +851,38 @@ def server_reachable(host, port, timeout=3.05, proto="tcp", source=None):
 	except:
 		return False
 
+def parse_mime_type(mime):
+	import cgi
+
+	if not mime or not isinstance(mime, basestring):
+		raise ValueError("mime must be a non empty str or unicode")
+
+	mime, params = cgi.parse_header(mime)
+
+	if mime == "*":
+		mime = "*/*"
+
+	parts = mime.split("/") if "/" in mime else None
+	if not parts or len(parts) != 2:
+		raise ValueError("mime must be a mime type of format type/subtype")
+
+	mime_type, mime_subtype = parts
+	return mime_type.strip(), mime_subtype.strip(), params
+
+def mime_type_matches(mime, other):
+	if not isinstance(mime, tuple):
+		mime = parse_mime_type(mime)
+	if not isinstance(other, tuple):
+		other = parse_mime_type(other)
+
+	mime_type, mime_subtype, _ = mime
+	other_type, other_subtype, _ = other
+
+	type_matches = (mime_type == other_type or mime_type == "*" or other_type == "*")
+	subtype_matches = (mime_subtype == other_subtype or mime_subtype == "*" or other_subtype == "*")
+
+	return type_matches and subtype_matches
+
 @contextlib.contextmanager
 def atomic_write(filename, mode="w+b", prefix="tmp", suffix="", permissions=0o644, max_permissions=0o777):
 	if os.path.exists(filename):
@@ -968,6 +1004,20 @@ except RuntimeError:
 	# no source of monotonic time available, nothing left but using time.time *cringe*
 	import time
 	monotonic_time = time.time
+
+
+def thaw_frozendict(obj):
+	if not isinstance(obj, (dict, frozendict.frozendict)):
+		raise ValueError("obj must be a dict or frozendict instance")
+
+	# only true love can thaw a frozen dict
+	letitgo = dict()
+	for key, value in obj.items():
+		if isinstance(value, (dict, frozendict.frozendict)):
+			letitgo[key] = thaw_frozendict(value)
+		else:
+			letitgo[key] = copy.deepcopy(value)
+	return letitgo
 
 
 def utmify(link, source=None, medium=None, name=None, term=None, content=None):
@@ -1136,16 +1186,107 @@ class RepeatedTimer(threading.Thread):
 		if callable(self.on_finish):
 			self.on_finish()
 
+class ResettableTimer(threading.Thread):
+	"""
+	This class represents an action that should be run after a specified amount of time. It is similar to python's
+	own :class:`threading.Timer` class, with the addition of being able to reset the counter to zero.
+
+	ResettableTimers are started, as with threads, by calling their ``start()`` method. The timer can be stopped (in
+	between runs) by calling the :func:`cancel` method. Resetting the counter can be done with the :func:`reset` method.
+
+	For example:
+
+	.. code-block:: python
+
+	   def hello():
+	       print("Ran hello() at {}").format(time.time())
+
+	   t = ResettableTimers(60.0, hello)
+	   t.start()
+	   print("Started at {}").format(time.time())
+	   time.sleep(30)
+	   t.reset()
+	   print("Reset at {}").format(time.time())
+
+	Arguments:
+	    interval (float or callable): The interval before calling ``function``, in seconds. Can also be a callable
+	        returning the interval to use, in case the interval is not static.
+	    function (callable): The function to call.
+	    args (list or tuple): The arguments for the ``function`` call. Defaults to an empty list.
+	    kwargs (dict): The keyword arguments for the ``function`` call. Defaults to an empty dict.
+	    on_cancelled (callable): Callback to call when the timer finishes due to being cancelled.
+	    on_reset (callable): Callback to call when the timer is reset.
+	"""
+
+	def __init__(self, interval, function, args=None, kwargs=None, on_reset=None, on_cancelled=None):
+		threading.Thread.__init__(self)
+		self._event = threading.Event()
+		self._mutex = threading.Lock()
+		self.is_reset = True
+
+		if args is None:
+			args = []
+		if kwargs is None:
+			kwargs = dict()
+
+		self.interval = interval
+		self.function = function
+		self.args = args
+		self.kwargs = kwargs
+		self.on_cancelled = on_cancelled
+		self.on_reset = on_reset
+
+
+	def run(self):
+		while self.is_reset:
+			with self._mutex:
+				self.is_reset = False
+			self._event.wait(self.interval)
+
+		if not self._event.isSet():
+			self.function(*self.args, **self.kwargs)
+		with self._mutex:
+			self._event.set()
+
+	def cancel(self):
+		with self._mutex:
+			self._event.set()
+
+		if callable(self.on_cancelled):
+			self.on_cancelled()
+
+	def reset(self, interval=None):
+		with self._mutex:
+			if interval:
+				self.interval = interval
+
+			self.is_reset = True
+			self._event.set()
+			self._event.clear()
+
+		if callable(self.on_reset):
+			self.on_reset()
+
 
 class CountedEvent(object):
 
-	def __init__(self, value=0, maximum=None, **kwargs):
+	def __init__(self, value=0, minimum=0, maximum=None, **kwargs):
 		self._counter = 0
+		self._min = minimum
 		self._max = kwargs.get("max", maximum)
-		self._mutex = threading.Lock()
+		self._mutex = threading.RLock()
 		self._event = threading.Event()
 
 		self._internal_set(value)
+
+	@property
+	def is_set(self):
+		return self._event.is_set
+
+	@property
+	def counter(self):
+		with self._mutex:
+			return self._counter
 
 	def set(self):
 		with self._mutex:
@@ -1158,17 +1299,26 @@ class CountedEvent(object):
 			else:
 				self._internal_set(self._counter - 1)
 
+	def reset(self):
+		self.clear(completely=True)
+
 	def wait(self, timeout=None):
 		self._event.wait(timeout)
 
 	def blocked(self):
-		with self._mutex:
-			return self._counter == 0
+		return self.counter <= 0
+
+	def acquire(self, blocking=1):
+		return self._mutex.acquire(blocking=blocking)
+
+	def release(self):
+		return self._mutex.release()
 
 	def _internal_set(self, value):
 		self._counter = value
 		if self._counter <= 0:
-			self._counter = 0
+			if self._min is not None and self._counter < self._min:
+				self._counter = self._min
 			self._event.clear()
 		else:
 			if self._max is not None and self._counter > self._max:
@@ -1420,3 +1570,31 @@ class ConnectivityChecker(object):
 		                                                              "online" if new_value else "offline"))
 		if callable(self._on_change):
 			self._on_change(old_value, new_value)
+
+
+class CaseInsensitiveSet(collections.Set):
+	"""
+	Basic case insensitive set
+
+	Any str or unicode values will be stored and compared in lower case. Other value types are left as-is.
+	"""
+
+	def __init__(self, *args):
+		self.data = set([x.lower() if isinstance(x, (str, unicode)) else x for x in args])
+
+	def __contains__(self, item):
+		if isinstance(item, (str, unicode)):
+			return item.lower() in self.data
+		else:
+			return item in self.data
+
+	def __iter__(self):
+		return iter(self.data)
+
+	def __len__(self):
+		return len(self.data)
+
+
+# originally from https://stackoverflow.com/a/5967539
+def natural_key(text):
+	return [ int(c) if c.isdigit() else c for c in re.split("(\d+)", text) ]

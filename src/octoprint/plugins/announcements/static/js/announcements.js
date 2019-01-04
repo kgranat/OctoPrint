@@ -66,8 +66,10 @@ $(function() {
             return link;
         };
 
-        self.markRead = function(channel, until) {
+        self.markRead = function(channel, until, reload) {
             if (!self.loginState.isAdmin()) return;
+
+            reload = !!reload;
 
             var url = PLUGIN_BASEURL + "announcements/channels/" + channel;
 
@@ -83,7 +85,9 @@ $(function() {
                 data: JSON.stringify(payload),
                 contentType: "application/json; charset=UTF-8",
                 success: function() {
-                    self.retrieveData()
+                    if (reload) {
+                        self.retrieveData()
+                    }
                 }
             })
         };
@@ -256,7 +260,7 @@ $(function() {
                 text += "</ul>";
 
                 if (rest) {
-                    text += gettext(_.sprintf("... and %(rest)d more.", {rest: rest}));
+                    text += "<p>"  + gettext(_.sprintf("... and %(rest)d more.", {rest: rest})) + "</p>";
                 }
 
                 text += "<small>" + gettext("You can edit your announcement subscriptions under Settings > Announcements.") + "</small>";

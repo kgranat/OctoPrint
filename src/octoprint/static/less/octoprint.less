@@ -364,27 +364,6 @@ table {
       .actioncol;
     }
 
-    // log files
-    &.settings_logs_name {
-      text-overflow: ellipsis;
-      text-align: left;
-    }
-
-    &.settings_logs_size {
-      text-align: right;
-      width: 70px;
-    }
-
-    &.settings_logs_date {
-      text-align: left;
-      width: 130px;
-    }
-
-    &.settings_logs_action {
-      width: 70px;
-      .actioncol;
-    }
-
     // Printer profiles
     &.settings_printerProfiles_profiles_name {
       text-overflow: ellipsis;
@@ -666,10 +645,14 @@ ul.dropdown-menu li a {
 #files {
   .gcode_files {
     @padding: 5px;
-    @scrollBar: 10px;
     @line-height: 20px;
 
-    padding-right: @scrollBar + 2px;
+    .scroll-wrapper {
+      overflow-x: hidden;
+      overflow-y: scroll;
+      height: 306px;
+      padding-right: 2px;
+    }
 
     .entry {
       padding: @padding;
@@ -689,6 +672,10 @@ ul.dropdown-menu li a {
       .internal, .uploaded, .size, .additionalInfo {
         font-size: 85%;
         color: #999;
+      }
+
+      .uploaded *[title] {
+        cursor: help;
       }
 
       .internal {
@@ -909,6 +896,13 @@ ul.dropdown-menu li a {
   }
 }
 
+#settings_appearance_managelanguagesdialog_list {
+    width: auto;
+    height: 300px;
+    overflow-x: hidden;
+    overflow-y: scroll;
+    padding-right: 2px;
+}
 
 #settings_appearance_managelanguagesdialog_emptylist {
   overflow: hidden;
