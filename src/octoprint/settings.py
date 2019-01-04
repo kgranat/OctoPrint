@@ -97,17 +97,13 @@ default_settings = {
 			"communicationBusy": 3,
 			"temperature": 5,
 			"temperatureTargetSet": 2,
-<<<<<<< HEAD
 			"temperatureAutoreport": 0,
 			"sdStatus": 1
-=======
-			"temperatureAutoreport": 2,
-			"sdStatus": 1,
+
 			"sdStatusAutoreport": 1,
 			"resendOk": .5,
 			"baudrateDetectionPause": 1.0,
 			"positionLogWait": 10.0,
->>>>>>> MakerGear/rc/maintenance
 		},
 		"maxCommunicationTimeouts": {
 			"idle": 2,

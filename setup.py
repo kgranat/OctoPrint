@@ -42,11 +42,7 @@ INSTALL_REQUIRES = [
 	"pkginfo>=1.4.2,<1.5",
 	"requests>=2.18.4,<3",
 	"semantic_version>=2.4.2,<2.5",
-<<<<<<< HEAD
-	"psutil==5.4.3",
-=======
 	"psutil>=5.4.6,<5.5",
->>>>>>> MakerGear/rc/maintenance
 	"Click>=6.2,<6.3",
 	"awesome-slugify>=1.6.5,<1.7",
 	"feedparser>=5.2.1,<5.3",
